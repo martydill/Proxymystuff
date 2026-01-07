@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Proxy Traffic Console</title>
+    <link rel="stylesheet" href="/ui/styles.css" />
+  </head>
+  <body>
+    <header class="top-bar">
+      <div>
+        <h1>Proxy Traffic Console</h1>
+        <p>Inspect and filter proxied HTTP traffic.</p>
+      </div>
+      <div class="top-bar__actions">
+        <button id="refresh">Refresh</button>
+        <label class="auto-refresh">
+          <input type="checkbox" id="auto-refresh" checked />
+          Auto refresh
+        </label>
+      </div>
+    </header>
+
+    <section class="filters">
+      <input id="search" type="search" placeholder="Search by URL, target, method, status, or body" />
+      <select id="method-filter">
+        <option value="">All methods</option>
+      </select>
+      <select id="status-filter">
+        <option value="">All statuses</option>
+      </select>
+      <label class="filter-field">
+        <span>Start time</span>
+        <input id="start-time" type="datetime-local" />
+      </label>
+      <label class="filter-field">
+        <span>End time</span>
+        <input id="end-time" type="datetime-local" />
+      </label>
+    </section>
+
+    <main class="layout">
+      <aside class="log-list" id="log-list"></aside>
+      <section class="details" id="details">
+        <div class="placeholder">Select a request to see details.</div>
+      </section>
+    </main>
+
+    <script src="/ui/app.js"></script>
+  </body>
+</html>
