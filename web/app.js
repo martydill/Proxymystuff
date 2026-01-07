@@ -45,10 +45,9 @@ const renderList = () => {
     item.innerHTML = `
       <div class="log-entry__meta">
         <span class="method">${entry.method}</span>
-        <span class="status">${entry.status || "–"}</span>
+        <span class="status">${entry.status || "-"}</span>
       </div>
       <div class="log-entry__url">${entry.url}</div>
-      <div class="log-entry__target">${entry.target || "No target"}</div>
       <div class="log-entry__time">${new Date(entry.startedAt).toLocaleTimeString()}</div>
     `;
     item.addEventListener("click", () => {
@@ -65,28 +64,53 @@ const renderDetails = (entry) => {
     <div class="detail-header">
       <h2>${entry.method} ${entry.url}</h2>
       <p>Target: <span>${entry.target || "Not resolved"}</span></p>
-      <p>Status: <strong>${entry.status || "Pending"}</strong> • Duration: ${entry.durationMillis} ms</p>
+      <p>Status: <strong>${entry.status || "Pending"}</strong> Duration: ${entry.durationMillis} ms</p>
     </div>
     <div class="detail-grid">
-      <div>
+      <div class="detail-section">
         <h3>Request</h3>
         <p><strong>Client:</strong> ${entry.clientIp || ""}</p>
         <p><strong>Content-Type:</strong> ${entry.requestContentType || ""}</p>
         <p><strong>Content-Length:</strong> ${entry.requestContentLength || 0}</p>
-        ${renderHeaderTable(entry.requestHeaders)}
+        ${renderHeaderBlock(entry.requestHeaders, "request-headers")}
         ${renderBody(entry.requestBody, entry.requestBodyEncoding, entry.requestBodyTruncated)}
       </div>
-      <div>
+      <div class="detail-section">
         <h3>Response</h3>
         <p><strong>Content-Type:</strong> ${entry.responseContentType || ""}</p>
         <p><strong>Content-Length:</strong> ${entry.responseContentLength || 0}</p>
-        ${renderHeaderTable(entry.responseHeaders)}
+        ${renderHeaderBlock(entry.responseHeaders, "response-headers")}
         ${renderBody(entry.responseBody, entry.responseBodyEncoding, entry.responseBodyTruncated)}
       </div>
     </div>
     ${entry.error ? `<div class="error-box">Error: ${entry.error}</div>` : ""}
   `;
+
+  details.querySelectorAll(".header-toggle").forEach((button) => {
+    button.addEventListener("click", () => {
+      const targetId = button.dataset.target;
+      const target = document.getElementById(targetId);
+      if (!target) {
+        return;
+      }
+      const wasCollapsed = target.classList.contains("is-collapsed");
+      target.classList.toggle("is-collapsed");
+      button.textContent = wasCollapsed ? "Hide headers" : "Show headers";
+      button.setAttribute("aria-expanded", wasCollapsed ? "true" : "false");
+    });
+  });
 };
+
+const renderHeaderBlock = (headers, sectionId) => `
+  <div class="header-block">
+    <button class="header-toggle" type="button" data-target="${sectionId}" aria-expanded="false">
+      Show headers
+    </button>
+    <div id="${sectionId}" class="header-table is-collapsed">
+      ${renderHeaderTable(headers)}
+    </div>
+  </div>
+`;
 
 const renderHeaderTable = (headers) => {
   if (!headers || Object.keys(headers).length === 0) {
@@ -104,10 +128,11 @@ const renderBody = (body, encoding, truncated) => {
   }
   const note = truncated ? "<span class='truncated'>truncated</span>" : "";
   const label = encoding === "base64" ? "(base64)" : "";
+  const safeBody = escapeHtml(body);
   return `
     <div class="body-block">
       <div class="body-meta">Body ${label} ${note}</div>
-      <pre>${escapeHtml(body)}</pre>
+      <textarea class="body-text" rows="10" readonly>${safeBody}</textarea>
     </div>
   `;
 };

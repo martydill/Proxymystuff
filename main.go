@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"embed"
 	"encoding/base64"
 	"encoding/json"
@@ -277,7 +278,10 @@ func (e *LogEntry) SetResponse(resp *http.Response, body []byte) {
 	e.ResponseContentLength = int64(len(body))
 	e.ResponseContentType = resp.Header.Get("Content-Type")
 	e.ResponseHeaders = flattenHeaders(resp.Header)
-	e.ResponseBody, e.ResponseBodyEncoding, e.ResponseBodyTruncated = formatBody(body)
+
+	bodyToFormat := decodeResponseBody(resp.Header, body)
+
+	e.ResponseBody, e.ResponseBodyEncoding, e.ResponseBodyTruncated = formatBody(bodyToFormat)
 }
 
 func (e *LogEntry) SetError(err string) {
@@ -461,8 +465,51 @@ func formatBody(body []byte) (string, string, bool) {
 		return string(body), "utf-8", truncated
 	}
 
+	if truncated {
+		// If truncated, we might have split a multi-byte character.
+		// Try removing up to 3 bytes from the end to see if it becomes valid.
+		for i := 1; i <= 3 && len(body) > i; i++ {
+			sub := body[:len(body)-i]
+			if utf8.Valid(sub) {
+				return string(sub), "utf-8", truncated
+			}
+		}
+	}
+
 	encoded := base64.StdEncoding.EncodeToString(body)
 	return encoded, "base64", truncated
+}
+
+func decodeResponseBody(headers http.Header, body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+
+	if isGzipEncoded(headers) || isGzipData(body) {
+		if decoded, err := gunzip(body); err == nil {
+			return decoded
+		}
+	}
+
+	return body
+}
+
+func isGzipEncoded(headers http.Header) bool {
+	encoding := strings.ToLower(headers.Get("Content-Encoding"))
+	return strings.Contains(encoding, "gzip")
+}
+
+func isGzipData(body []byte) bool {
+	return len(body) >= 2 && body[0] == 0x1f && body[1] == 0x8b
+}
+
+func gunzip(body []byte) ([]byte, error) {
+	reader, err := gzip.NewReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	return io.ReadAll(reader)
 }
 
 func joinURLPath(a, b string) string {
