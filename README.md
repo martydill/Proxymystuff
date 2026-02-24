@@ -1,12 +1,8 @@
 # Proxy My Stuff
 
-A lightweight Go reverse proxy with a built-in web console for inspecting HTTP traffic. Point any local app at the proxy, forward requests to a target service, and browse full request/response logs (headers and bodies) in the UI.
+A lightweight Go reverse proxy and traffic inspector. Here's an example of pointing Claude Code at it:
 
-## Features
-
-- Reverse proxy with flexible target resolution.
-- Configurable targets via header, query param, encoded URL path, or default target.
-- Web UI to search, filter, and inspect individual HTTP messages.
+<img width="1277" height="801" alt="image" src="https://github.com/user-attachments/assets/09457917-6267-4294-8f2f-a529b7868bad" />
 
 ## Running
 
