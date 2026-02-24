@@ -11,30 +11,55 @@ const endTimeInput = document.getElementById("end-time");
 let logs = [];
 let selectedId = null;
 let refreshTimer = null;
+let lastLogsJson = "";
+let expandedSections = new Set();
 
 const fetchLogs = async () => {
-  const response = await fetch("/api/logs");
-  if (!response.ok) {
-    logList.innerHTML = "<p class='error'>Failed to fetch logs.</p>";
-    return;
-  }
-  logs = await response.json();
-  updateFilters(logs);
-  renderList();
-  if (selectedId) {
-    const match = logs.find((entry) => entry.id === selectedId);
-    if (match) {
-      renderDetails(match);
+  try {
+    const response = await fetch("/api/logs");
+    if (!response.ok) {
+      logList.innerHTML = "<p class='error'>Failed to fetch logs.</p>";
+      return;
     }
+    const data = await response.json();
+    const dataJson = JSON.stringify(data);
+    
+    if (dataJson === lastLogsJson) {
+      return; // No changes, skip re-render
+    }
+    
+    lastLogsJson = dataJson;
+    logs = data;
+    
+    updateFilters(logs);
+    renderList();
+    
+    if (selectedId) {
+      const match = logs.find((entry) => entry.id === selectedId);
+      if (match) {
+        renderDetails(match);
+      }
+    }
+  } catch (err) {
+    console.error("Fetch error:", err);
   }
 };
 
 const renderList = () => {
   const filtered = applyFilters(logs);
+  
+  const currentListState = JSON.stringify(filtered.map(e => ({id: e.id, status: e.status, method: e.method, url: e.url})));
+  if (logList.dataset.state === currentListState && logList.dataset.selected === String(selectedId)) {
+    return;
+  }
+  logList.dataset.state = currentListState;
+  logList.dataset.selected = String(selectedId);
+
   if (!filtered.length) {
     logList.innerHTML = "<p class='placeholder'>No traffic yet.</p>";
     return;
   }
+
   logList.innerHTML = "";
   filtered.forEach((entry) => {
     const item = document.createElement("button");
@@ -51,6 +76,7 @@ const renderList = () => {
       <div class="log-entry__time">${new Date(entry.startedAt).toLocaleTimeString()}</div>
     `;
     item.addEventListener("click", () => {
+      if (selectedId === entry.id) return;
       selectedId = entry.id;
       renderDetails(entry);
       renderList();
@@ -59,7 +85,24 @@ const renderList = () => {
   });
 };
 
+const isJson = (str) => {
+  if (!str) return false;
+  try {
+    const obj = JSON.parse(str);
+    return !!obj && typeof obj === 'object';
+  } catch (e) {
+    return false;
+  }
+};
+
 const renderDetails = (entry) => {
+  const detailsState = JSON.stringify({id: entry.id, status: entry.status, duration: entry.durationMillis, error: entry.error});
+  if (details.dataset.state === detailsState && details.dataset.selected === String(entry.id)) {
+     // Skip if identical
+  }
+  details.dataset.state = detailsState;
+  details.dataset.selected = String(entry.id);
+
   details.innerHTML = `
     <div class="detail-header">
       <h2>${entry.method} ${entry.url}</h2>
@@ -69,18 +112,34 @@ const renderDetails = (entry) => {
     <div class="detail-grid">
       <div class="detail-section">
         <h3>Request</h3>
-        <p><strong>Client:</strong> ${entry.clientIp || ""}</p>
-        <p><strong>Content-Type:</strong> ${entry.requestContentType || ""}</p>
-        <p><strong>Content-Length:</strong> ${entry.requestContentLength || 0}</p>
-        ${renderHeaderBlock(entry.requestHeaders, "request-headers")}
-        ${renderBody(entry.requestBody, entry.requestBodyEncoding, entry.requestBodyTruncated)}
+        <div class="detail-section__scrollable">
+          <p><strong>Client:</strong> ${entry.clientIp || ""}</p>
+          <p><strong>Content-Type:</strong> ${entry.requestContentType || ""}</p>
+          <p><strong>Content-Length:</strong> ${entry.requestContentLength || 0}</p>
+          <div class="action-bar">
+            ${renderHeaderToggle("request-headers")}
+            ${isJson(entry.requestBody) ? `<button class="pretty-print-btn" data-target="request-body" data-type="request">Pretty print</button>` : ""}
+          </div>
+          <div id="request-headers" class="header-table ${expandedSections.has("request-headers") ? "" : "is-collapsed"}">
+            ${renderHeaderTable(entry.requestHeaders)}
+          </div>
+          ${renderBody(entry.requestBody, entry.requestBodyEncoding, entry.requestBodyTruncated, "request-body")}
+        </div>
       </div>
       <div class="detail-section">
         <h3>Response</h3>
-        <p><strong>Content-Type:</strong> ${entry.responseContentType || ""}</p>
-        <p><strong>Content-Length:</strong> ${entry.responseContentLength || 0}</p>
-        ${renderHeaderBlock(entry.responseHeaders, "response-headers")}
-        ${renderBody(entry.responseBody, entry.responseBodyEncoding, entry.responseBodyTruncated)}
+        <div class="detail-section__scrollable">
+          <p><strong>Content-Type:</strong> ${entry.responseContentType || ""}</p>
+          <p><strong>Content-Length:</strong> ${entry.responseContentLength || 0}</p>
+          <div class="action-bar">
+            ${renderHeaderToggle("response-headers")}
+            ${isJson(entry.responseBody) ? `<button class="pretty-print-btn" data-target="response-body" data-type="response">Pretty print</button>` : ""}
+          </div>
+          <div id="response-headers" class="header-table ${expandedSections.has("response-headers") ? "" : "is-collapsed"}">
+            ${renderHeaderTable(entry.responseHeaders)}
+          </div>
+          ${renderBody(entry.responseBody, entry.responseBodyEncoding, entry.responseBodyTruncated, "response-body")}
+        </div>
       </div>
     </div>
     ${entry.error ? `<div class="error-box">Error: ${entry.error}</div>` : ""}
@@ -90,27 +149,54 @@ const renderDetails = (entry) => {
     button.addEventListener("click", () => {
       const targetId = button.dataset.target;
       const target = document.getElementById(targetId);
-      if (!target) {
-        return;
+      if (!target) return;
+      
+      const isCurrentlyCollapsed = target.classList.contains("is-collapsed");
+      if (isCurrentlyCollapsed) {
+        target.classList.remove("is-collapsed");
+        button.textContent = "Hide headers";
+        button.setAttribute("aria-expanded", "true");
+        expandedSections.add(targetId);
+      } else {
+        target.classList.add("is-collapsed");
+        button.textContent = "Show headers";
+        button.setAttribute("aria-expanded", "false");
+        expandedSections.delete(targetId);
       }
-      const wasCollapsed = target.classList.contains("is-collapsed");
-      target.classList.toggle("is-collapsed");
-      button.textContent = wasCollapsed ? "Hide headers" : "Show headers";
-      button.setAttribute("aria-expanded", wasCollapsed ? "true" : "false");
+    });
+  });
+
+  details.querySelectorAll(".pretty-print-btn").forEach((button) => {
+    button.addEventListener("click", () => {
+      const type = button.dataset.type;
+      const raw = type === 'request' ? entry.requestBody : entry.responseBody;
+      const textarea = document.getElementById(button.dataset.target);
+      if (textarea) {
+        if (button.textContent === "Pretty print") {
+          try {
+            const obj = JSON.parse(raw);
+            textarea.value = JSON.stringify(obj, null, 2);
+            button.textContent = "Show raw";
+          } catch (e) {
+            console.error("Failed to pretty print", e);
+          }
+        } else {
+          textarea.value = raw;
+          button.textContent = "Pretty print";
+        }
+      }
     });
   });
 };
 
-const renderHeaderBlock = (headers, sectionId) => `
-  <div class="header-block">
-    <button class="header-toggle" type="button" data-target="${sectionId}" aria-expanded="false">
-      Show headers
+const renderHeaderToggle = (sectionId) => {
+  const isExpanded = expandedSections.has(sectionId);
+  return `
+    <button class="header-toggle" type="button" data-target="${sectionId}" aria-expanded="${isExpanded}">
+      ${isExpanded ? "Hide headers" : "Show headers"}
     </button>
-    <div id="${sectionId}" class="header-table is-collapsed">
-      ${renderHeaderTable(headers)}
-    </div>
-  </div>
-`;
+  `;
+};
 
 const renderHeaderTable = (headers) => {
   if (!headers || Object.keys(headers).length === 0) {
@@ -122,7 +208,7 @@ const renderHeaderTable = (headers) => {
   return `<table class='headers'>${rows}</table>`;
 };
 
-const renderBody = (body, encoding, truncated) => {
+const renderBody = (body, encoding, truncated, id) => {
   if (!body) {
     return "<p class='placeholder'>No body captured.</p>";
   }
@@ -132,7 +218,7 @@ const renderBody = (body, encoding, truncated) => {
   return `
     <div class="body-block">
       <div class="body-meta">Body ${label} ${note}</div>
-      <textarea class="body-text" rows="10" readonly>${safeBody}</textarea>
+      <textarea id="${id}" class="body-text" rows="10" readonly>${safeBody}</textarea>
     </div>
   `;
 };
@@ -152,16 +238,12 @@ const updateFilters = (entries) => {
 
 const setSelectOptions = (select, values, defaultLabel) => {
   const current = select.value;
-  select.innerHTML = `<option value="">${defaultLabel}</option>`;
-  Array.from(values)
-    .sort()
-    .forEach((value) => {
-      const option = document.createElement("option");
-      option.value = value;
-      option.textContent = value;
-      select.appendChild(option);
-    });
-  select.value = current;
+  const optionsHtml = `<option value="">${defaultLabel}</option>` + 
+    Array.from(values).sort().map(v => `<option value="${v}" ${v === current ? 'selected' : ''}>${v}</option>`).join("");
+  
+  if (select.innerHTML !== optionsHtml) {
+    select.innerHTML = optionsHtml;
+  }
 };
 
 const applyFilters = (entries) => {
@@ -171,24 +253,14 @@ const applyFilters = (entries) => {
   const startTime = startTimeInput.value ? new Date(startTimeInput.value).getTime() : null;
   const endTime = endTimeInput.value ? new Date(endTimeInput.value).getTime() : null;
   return entries.filter((entry) => {
-    if (method && entry.method !== method) {
-      return false;
-    }
-    if (status && String(entry.status) !== status) {
-      return false;
-    }
+    if (method && entry.method !== method) return false;
+    if (status && String(entry.status) !== status) return false;
     if (startTime || endTime) {
       const entryTime = new Date(entry.startedAt).getTime();
-      if (startTime && entryTime < startTime) {
-        return false;
-      }
-      if (endTime && entryTime > endTime) {
-        return false;
-      }
+      if (startTime && entryTime < startTime) return false;
+      if (endTime && entryTime > endTime) return false;
     }
-    if (!search) {
-      return true;
-    }
+    if (!search) return true;
     const haystack = [
       entry.url,
       entry.target,
@@ -205,15 +277,16 @@ const applyFilters = (entries) => {
 };
 
 const scheduleAutoRefresh = () => {
-  if (refreshTimer) {
-    clearInterval(refreshTimer);
-  }
+  if (refreshTimer) clearInterval(refreshTimer);
   if (autoRefresh.checked) {
     refreshTimer = setInterval(fetchLogs, 2000);
   }
 };
 
-refreshButton.addEventListener("click", fetchLogs);
+refreshButton.addEventListener("click", () => {
+  lastLogsJson = ""; // Force re-render
+  fetchLogs();
+});
 searchInput.addEventListener("input", renderList);
 methodFilter.addEventListener("change", renderList);
 statusFilter.addEventListener("change", renderList);
